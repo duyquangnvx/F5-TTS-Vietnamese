@@ -1,110 +1,355 @@
 # F5-TTS-Vietnamese
+
 ![F5-TTS Architecture](tests/f5-tts.png)
 
-A fine-tuning pipeline for training a Vietnamese speech synthesis model using the F5-TTS architecture.
+A fine-tuning pipeline for training Vietnamese speech synthesis models using the F5-TTS architecture.
 
-Try demo at: https://huggingface.co/spaces/hynt/F5-TTS-Vietnamese-100h
+**Demo**: https://huggingface.co/spaces/hynt/F5-TTS-Vietnamese-100h
 
-## Tips for training
-- 100 hours of data is generally sufficient to train a Vietnamese Text-to-Speech model for specific voices. However, to achieve optimal performance in voice cloning across a wide range of speakers, a larger dataset is recommended. I fine-tuned an F5-TTS model on approximately 1000 hours of data, which resulted in excellent voice cloning performance.
-- Having a large amount of speaker hours with highly accurate transcriptions is crucial — the more, the better. This helps the model generalize better to unseen speakers, resulting in lower WER after training and reducing hallucinations.
+## Table of Contents
 
-## Tips for inference
-- It is recommended to select sample audios that are clear and have minimal interruptions, and should be less than 10 seconds long, as this will improve the synthesis results.
-- If the reference audio text is not provided, the default model used will be whisper-large-v3-turbo. Consequently, Vietnamese may not be accurately recognized in some cases, which can result in poor speech synthesis quality.
-- In case you want to synthesize speech from a long text paragraph, it is recommended to replace the chunks function (located in **src/f5_tts/infer/utils_infer.py**) with the modified chunk_text function below:
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [CLI Reference](#cli-reference)
+- [Fine-tuning Pipeline](#fine-tuning-pipeline)
+- [Project Structure](#project-structure)
+- [Tips](#tips)
+- [References](#references)
 
-```bash
-def chunk_text(text, max_chars=135):
-    sentences = [s.strip() for s in text.split('. ') if s.strip()]
-    i = 0
-    while i < len(sentences):
-        if len(sentences[i].split()) < 4:
-            if i == 0:
-                # Merge with the next sentence
-                sentences[i + 1] = sentences[i] + ', ' + sentences[i + 1]
-                del sentences[i]
-            else:
-                # Merge with the previous sentence
-                sentences[i - 1] = sentences[i - 1] + ', ' + sentences[i]
-                del sentences[i]
-                i -= 1
-        else:
-            i += 1
+## Features
 
-    final_sentences = []
-    for sentence in sentences:
-        parts = [p.strip() for p in sentence.split(', ')]
-        buffer = []
-        for part in parts:
-            buffer.append(part)
-            total_words = sum(len(p.split()) for p in buffer)
-            if total_words > 20:
-                # Split into separate chunks
-                long_part = ', '.join(buffer)
-                final_sentences.append(long_part)
-                buffer = []
-        if buffer:
-            final_sentences.append(', '.join(buffer))
+- Vietnamese TTS with voice cloning capability
+- CLI and Gradio UI interfaces
+- Windows and Linux support
+- Multi-GPU training with Accelerate
+- Pre-trained model fine-tuning
 
-    if len(final_sentences[-1].split()) < 4 and len(final_sentences) >= 2:
-        final_sentences[-2] = final_sentences[-2] + ", " + final_sentences[-1]
-        final_sentences = final_sentences[0:-1]
+## Requirements
 
-    return final_sentences
-```
+- Python 3.9 - 3.12
+- CUDA-compatible GPU (recommended: 8GB+ VRAM)
+- PyTorch 2.0+
 
 ## Installation
 
-### Create a separate environment if needed
+### 1. Create Environment
 
 ```bash
-# Create a python 3.10 conda env (you could also use virtualenv)
+# Using conda
 conda create -n f5-tts python=3.10
 conda activate f5-tts
+
+# Or using venv
+python -m venv venv
+# Windows
+.\venv\Scripts\activate
+# Linux/Mac
+source venv/bin/activate
 ```
 
-### Install PyTorch
-
-> ```bash
-> # Install pytorch with your CUDA version, e.g.
-> pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
-> ```
-
-### Install f5-tts module:
-
-> ```bash
-> cd F5-TTS-Vietnamese
-> pip install -e .
-> ```
-
-### Install sox, ffmpeg
-
-> ```bash
-> sudo apt-get update
-> sudo apt-get install sox ffmpeg
-> ```
-
-## Fine-tuning pipline
-
-Steps:
-
-- Prepare `audio_name` and corresponding transcriptions  
-- Add missing vocabulary from your dataset to the pretrained model  
-- Expand the model's embedding to support the updated vocabulary  
-- Perform feature extraction  
-- Fine-tune the model
+### 2. Install PyTorch
 
 ```bash
-bash fine_tuning.sh
+# CUDA 12.8 (RTX 50 series, nightly build)
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+
+# CUDA 12.4
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# CUDA 12.1
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# CUDA 11.8
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# CPU only
+pip install torch torchvision torchaudio
 ```
+
+> **Note**: RTX 50 series (5070, 5080, 5090) requires CUDA 12.8+ (nightly build)
+
+### 3. Install F5-TTS
+
+```bash
+cd F5-TTS-Vietnamese
+pip install -e .
+```
+
+### 4. (Optional) Pre-download Models
+
+```bash
+# Download vocoder (recommended)
+python -m f5_tts.tools.download_models
+
+# Download all models for offline use
+python -m f5_tts.tools.download_models --all
+```
+
+### 5. Verify Installation
+
+```bash
+# Check GPU detection
+python -m f5_tts.tools.check_device --test
+```
+
+Expected output:
+```
+==================================================
+Device Information
+==================================================
+  Device Type: CUDA
+  Device Name: NVIDIA GeForce RTX ...
+  Memory: XX.XX GB
+  Compute Capability: X.X
+  CUDA Version: XX.X
+  Dtype: torch.float16
+==================================================
+```
+
+## Quick Start
+
+### Inference with Pre-trained Model
+
+**Option 1: Using config file (recommended for Vietnamese)**
+
+```bash
+# Edit configs/infer_vi.toml with your text
+python -m f5_tts.infer.infer_cli --config configs/infer_vi.toml
+```
+
+**Option 2: Using command line**
+
+```bash
+python -m f5_tts.infer.infer_cli \
+    --model F5TTS_Base \
+    --ref_audio ref/vi_ref_1.wav \
+    --ref_text "cả hai bên hãy cố gắng hiểu cho nhau" \
+    --gen_text "xin chào, đây là giọng nói tiếng Việt" \
+    --vocab_file data/ViVoice/vocab.txt \
+    --ckpt_file data/ViVoice/model_last.pt \
+    --output_dir output/inference
+```
+
+**Option 3: Using Windows scripts**
+
+```powershell
+# PowerShell (recommended for Vietnamese)
+.\scripts\infer_vi.ps1
+
+# Or with custom config
+.\scripts\infer_vi.ps1 -Config "configs/my_config.toml"
+```
+
+### Gradio Web UI
+
+```bash
+python -m f5_tts.infer.infer_gradio
+```
+
+## CLI Reference
 
 ### Inference
 
 ```bash
-bash infer.sh
+python -m f5_tts.infer.infer_cli --help
 ```
 
-### References
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--config` | TOML config file | - |
+| `--model` | Model name (F5TTS_Base, F5TTS_v1_Base, E2TTS_Base) | F5TTS_v1_Base |
+| `--ref_audio` | Reference audio file | - |
+| `--ref_text` | Reference text (transcript) | - |
+| `--gen_text` | Text to synthesize | - |
+| `--vocab_file` | Vocabulary file path | - |
+| `--ckpt_file` | Model checkpoint path | - |
+| `--output_dir` | Output directory | tests |
+| `--speed` | Speech speed (0.5-2.0) | 1.0 |
+| `--nfe_step` | Denoising steps | 32 |
 
-- Original F5-TTS repository: [https://github.com/SWivid/F5-TTS](https://github.com/SWivid/F5-TTS)
+### Training
+
+```bash
+python -m f5_tts.train.finetune_cli --help
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--exp_name` | Experiment name | F5TTS_v1_Base |
+| `--dataset_name` | Dataset directory name | Emilia_ZH_EN |
+| `--learning_rate` | Learning rate | 1e-5 |
+| `--batch_size_per_gpu` | Batch size (frames) | 3200 |
+| `--epochs` | Number of epochs | 1000 |
+| `--save_per_updates` | Save checkpoint every N updates | 10000 |
+| `--pretrain` | Pretrained checkpoint path | - |
+| `--finetune` | Enable fine-tuning mode | False |
+
+### Tools
+
+```bash
+# Check device/GPU
+python -m f5_tts.tools.check_device
+python -m f5_tts.tools.check_device --all    # Show all devices
+python -m f5_tts.tools.check_device --test   # Test CUDA
+
+# Download models
+python -m f5_tts.tools.download_models              # Vocos vocoder
+python -m f5_tts.tools.download_models --all        # All models
+python -m f5_tts.tools.download_models --f5tts      # F5-TTS models
+
+# Data preparation
+python -m f5_tts.tools.prepare_metadata --help
+python -m f5_tts.tools.convert_sr --help
+python -m f5_tts.tools.check_vocab --help
+python -m f5_tts.tools.extend_embeddings --help
+```
+
+## Fine-tuning Pipeline
+
+### Overview
+
+1. **Prepare data**: Audio files + transcriptions
+2. **Convert sample rate**: Resample to 24kHz
+3. **Prepare metadata**: Generate metadata.csv and vocab.txt
+4. **Check vocabulary**: Compare with pretrained vocab
+5. **Extend embeddings**: Add new vocab to model
+6. **Extract features**: Prepare training data
+7. **Fine-tune**: Train the model
+
+### Using Scripts (Windows)
+
+```powershell
+# Edit scripts/fine_tuning.bat or fine_tuning.ps1 first
+
+# Run full pipeline
+.\scripts\fine_tuning.ps1 -Stage 0 -StopStage 5
+
+# Run specific stages
+.\scripts\fine_tuning.ps1 -Stage 5 -StopStage 5  # Training only
+```
+
+### Manual Steps
+
+```bash
+# 1. Convert sample rate to 24kHz
+python -m f5_tts.tools.convert_sr \
+    --input-dir data/raw_audio \
+    --sample-rate 24000
+
+# 2. Prepare metadata
+python -m f5_tts.tools.prepare_metadata \
+    --dataset-dir data/raw_audio \
+    --training-dir data/ViVoice
+
+# 3. Check vocabulary
+python -m f5_tts.tools.check_vocab \
+    --pretrained-vocab data/Emilia_ZH_EN_pinyin/vocab.txt \
+    --dataset-vocab data/ViVoice/vocab.txt \
+    --output data/ViVoice/vocab_extended.txt
+
+# 4. Extend embeddings
+python -m f5_tts.tools.extend_embeddings \
+    --model F5TTS_Base \
+    --pretrained-vocab data/Emilia_ZH_EN_pinyin/vocab.txt \
+    --new-vocab data/ViVoice/vocab_extended.txt \
+    --output ckpts/ViVoice/pretrained_extended.pt
+
+# 5. Extract features
+python src/f5_tts/train/datasets/prepare_csv_wavs.py \
+    data/ViVoice data/ViVoice
+
+# 6. Fine-tune
+python -m f5_tts.train.finetune_cli \
+    --exp_name F5TTS_Base \
+    --dataset_name ViVoice \
+    --batch_size_per_gpu 3200 \
+    --finetune \
+    --pretrain ckpts/ViVoice/pretrained_extended.pt
+```
+
+### Multi-GPU Training
+
+```bash
+accelerate launch src/f5_tts/train/finetune_cli.py \
+    --exp_name F5TTS_Base \
+    --dataset_name ViVoice \
+    --finetune \
+    --pretrain ckpts/ViVoice/pretrained_extended.pt
+```
+
+## Project Structure
+
+```
+F5-TTS-Vietnamese/
+├── src/f5_tts/
+│   ├── core/               # Shared components (device, embeddings)
+│   ├── model/              # Model architecture
+│   │   └── backbones/      # DiT, UNetT, MMDiT
+│   ├── infer/              # Inference code
+│   ├── train/              # Training code
+│   ├── eval/               # Evaluation
+│   ├── tools/              # CLI tools
+│   └── configs/            # Model configs
+├── scripts/                # Windows batch/PowerShell scripts
+├── configs/                # Inference configs
+├── data/                   # Training data
+├── ckpts/                  # Checkpoints
+├── output/                 # Output files
+└── tests/                  # Tests
+```
+
+## Tips
+
+### Training Tips
+
+- **Data quantity**: 100+ hours for specific voices, 1000+ hours for general voice cloning
+- **Data quality**: Clear audio with accurate transcriptions is crucial
+- **Batch size**: Adjust based on GPU memory (3200-7000 frames typical)
+
+### Inference Tips
+
+- **Reference audio**: Use clear audio < 10 seconds
+- **Reference text**: Always provide accurate transcript for best results
+- **Speed**: Use 0.9-1.1 for natural speech
+
+### Vietnamese-specific Tips
+
+- Use config files (`.toml`) instead of command-line arguments to avoid UTF-8 encoding issues on Windows
+- Provide reference text manually - Whisper may not accurately transcribe Vietnamese
+- For long text, the system automatically chunks sentences
+
+### Chunk Text for Long Paragraphs
+
+The default chunking may not work well for Vietnamese. A custom `chunk_text` function is available in `utils_infer.py` that handles Vietnamese sentence structure better.
+
+## Troubleshooting
+
+### FFmpeg/TorchCodec Error on Windows
+
+If you see errors about `libtorchcodec`, the code automatically uses `soundfile` as fallback. No action needed.
+
+### UTF-8 Encoding Issues
+
+Use config files instead of command-line arguments:
+
+```bash
+# Instead of --gen_text "tiếng Việt"
+python -m f5_tts.infer.infer_cli --config configs/infer_vi.toml
+```
+
+### Out of Memory
+
+- Reduce `--batch_size_per_gpu`
+- Use shorter reference audio
+- Reduce `--nfe_step` (minimum 16)
+
+## References
+
+- Original F5-TTS: https://github.com/SWivid/F5-TTS
+- Paper: [F5-TTS: A Fairytaler that Fakes Fluent and Faithful Speech with Flow Matching](https://arxiv.org/abs/2410.06885)
+
+## License
+
+MIT License
