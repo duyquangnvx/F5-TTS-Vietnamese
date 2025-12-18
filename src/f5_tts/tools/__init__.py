@@ -10,6 +10,7 @@ from f5_tts.tools.convert_sr import main as convert_sr
 from f5_tts.tools.check_vocab import main as check_vocab
 from f5_tts.tools.extend_embeddings import main as extend_embeddings
 from f5_tts.tools.check_device import main as check_device
+from f5_tts.tools.download_models import main as download_models
 
 __all__ = [
     "prepare_metadata",
@@ -17,4 +18,5 @@ __all__ = [
     "check_vocab",
     "extend_embeddings",
     "check_device",
+    "download_models",
 ]

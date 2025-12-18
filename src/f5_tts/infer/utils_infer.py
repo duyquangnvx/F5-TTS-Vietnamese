@@ -287,12 +287,12 @@ def load_vocoder(
     """Load vocoder model for audio generation."""
     if vocoder_name == "vocos":
         if is_local:
-            print(f"Load vocos from local path {local_path}")
+            print(f"Loading Vocos from local path: {local_path}")
             config_path = f"{local_path}/config.yaml"
             model_path = f"{local_path}/pytorch_model.bin"
         else:
-            print("Download Vocos from huggingface charactr/vocos-mel-24khz")
             repo_id = "charactr/vocos-mel-24khz"
+            print(f"Loading Vocos vocoder from: {repo_id} (cached after first download)")
             config_path = hf_hub_download(repo_id=repo_id, cache_dir=hf_cache_dir, filename="config.yaml")
             model_path = hf_hub_download(repo_id=repo_id, cache_dir=hf_cache_dir, filename="pytorch_model.bin")
         vocoder = Vocos.from_hparams(config_path)

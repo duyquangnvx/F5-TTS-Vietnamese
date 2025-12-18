@@ -85,6 +85,7 @@ f5-tts-convert-sr = "f5_tts.tools.convert_sr:main"
 f5-tts-check-vocab = "f5_tts.tools.check_vocab:main"
 f5-tts-extend-embeddings = "f5_tts.tools.extend_embeddings:main"
 f5-tts-check-device = "f5_tts.tools.check_device:main"
+f5-tts-download-models = "f5_tts.tools.download_models:main"
 
 # Legacy CLI commands (for backward compatibility during transition)
 "f5-tts_infer-cli" = "f5_tts.infer.infer_cli:main"
