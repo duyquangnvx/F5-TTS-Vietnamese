@@ -28,13 +28,13 @@
 #>
 
 param(
-    [string]$RefAudio = "ref.wav",
+    [string]$RefAudio = "ref\vi_ref_1.wav",
     [string]$RefText = "cả hai bên hãy cố gắng hiểu cho nhau",
     [Parameter(Mandatory=$false)]
     [string]$GenText = "mình muốn ra nước ngoài để tiếp xúc nhiều công ty lớn, sau đó mang những gì học được về việt nam giúp xây dựng các công trình tốt hơn",
     [string]$Model = "F5TTS_Base",
-    [string]$VocabFile = "data\your_training_dataset\vocab.txt",
-    [string]$CkptFile = "ckpts\your_training_dataset\model_last.pt",
+    [string]$VocabFile = "data\ViVoice\vocab.txt",
+    [string]$CkptFile = "data\ViVoice\model_last.pt",
     [string]$Vocoder = "vocos",
     [float]$Speed = 1.0,
     [int]$NfeStep = 32,

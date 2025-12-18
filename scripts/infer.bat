@@ -18,8 +18,8 @@ if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 
 :: Model Configuration
 set MODEL=F5TTS_Base
-set VOCAB_FILE=data\your_training_dataset\vocab.txt
-set CKPT_FILE=ckpts\your_training_dataset\model_last.pt
+set VOCAB_FILE=data\ViVoice\vocab.txt
+set CKPT_FILE=data\ViVoice\model_last.pt
 set VOCODER=vocos
 
 :: Inference Parameters
@@ -27,7 +27,7 @@ set SPEED=1.0
 set NFE_STEP=32
 
 :: Input Files
-set REF_AUDIO=ref.wav
+set REF_AUDIO=ref\vi_ref_1.wav
 set REF_TEXT=cả hai bên hãy cố gắng hiểu cho nhau
 set GEN_TEXT=mình muốn ra nước ngoài để tiếp xúc nhiều công ty lớn, sau đó mang những gì học được về việt nam giúp xây dựng các công trình tốt hơn
 
