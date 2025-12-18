@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /s /b \"D:\\Workspace\\Personal\\Code\\F5-TTS-Vietnamese\\*.txt\" \"D:\\Workspace\\Personal\\Code\\F5-TTS-Vietnamese\\*.toml\" \"D:\\Workspace\\Personal\\Code\\F5-TTS-Vietnamese\\*.yaml\")",
+      "Bash(dir:*)",
+      "mcp__plugin_serena_serena__list_dir",
+      "Bash(tree /F /L 3)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(git -C /d/Workspace/Personal/Code/F5-TTS-Vietnamese log --oneline -10)",
+      "mcp__plugin_serena_serena__initial_instructions",
+      "mcp__plugin_serena_serena__activate_project",
+      "mcp__plugin_serena_serena__list_memories"
+    ]
+  }
+}

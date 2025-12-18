@@ -1,19 +1,21 @@
 # A unified script for inference process
 # Make adjustments inside functions, and consider both gradio and cli scripts if need to change func output format
+
+from __future__ import annotations
+
+import hashlib
 import os
+import re
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from importlib.resources import files
+from typing import TYPE_CHECKING, Callable, Dict, Generator, List, Optional, Tuple, Union
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"  # for MPS device compatibility
 sys.path.append(f"{os.path.dirname(os.path.abspath(__file__))}/../../third_party/BigVGAN/")
 
-import hashlib
-import re
-import tempfile
-from importlib.resources import files
-
 import matplotlib
-
 matplotlib.use("Agg")
 
 import matplotlib.pylab as plt
@@ -21,62 +23,235 @@ import numpy as np
 import torch
 import torchaudio
 import tqdm
-from huggingface_hub import snapshot_download, hf_hub_download
+from huggingface_hub import hf_hub_download, snapshot_download
 from pydub import AudioSegment, silence
 from transformers import pipeline
 from vocos import Vocos
 
 from f5_tts.model import CFM
-from f5_tts.model.utils import (
-    get_tokenizer,
-    convert_char_to_pinyin,
+from f5_tts.model.utils import convert_char_to_pinyin, get_tokenizer
+from f5_tts.constants import (
+    TARGET_SAMPLE_RATE,
+    N_MEL_CHANNELS,
+    HOP_LENGTH,
+    WIN_LENGTH,
+    N_FFT,
+    DEFAULT_NFE_STEP,
+    DEFAULT_CFG_STRENGTH,
+    DEFAULT_SPEED,
+    DEFAULT_TARGET_RMS,
+    DEFAULT_CROSS_FADE_DURATION,
+    DEFAULT_SWAY_SAMPLING_COEF,
 )
+from f5_tts.core.device import get_device, get_dtype
 
-_ref_audio_cache = {}
+if TYPE_CHECKING:
+    from torch import Tensor
 
-device = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "xpu"
-    if torch.xpu.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
-)
 
 # -----------------------------------------
+# Module-level defaults (for backward compatibility)
+# -----------------------------------------
 
-target_sample_rate = 24000
-n_mel_channels = 100
-hop_length = 256
-win_length = 1024
-n_fft = 1024
+target_sample_rate = TARGET_SAMPLE_RATE
+n_mel_channels = N_MEL_CHANNELS
+hop_length = HOP_LENGTH
+win_length = WIN_LENGTH
+n_fft = N_FFT
 mel_spec_type = "vocos"
-target_rms = 0.1
-cross_fade_duration = 0.15
+target_rms = DEFAULT_TARGET_RMS
+cross_fade_duration = DEFAULT_CROSS_FADE_DURATION
 ode_method = "euler"
-nfe_step = 32  # 16, 32
-cfg_strength = 2.0
-sway_sampling_coef = -1.0
-speed = 1.0
+nfe_step = DEFAULT_NFE_STEP
+cfg_strength = DEFAULT_CFG_STRENGTH
+sway_sampling_coef = DEFAULT_SWAY_SAMPLING_COEF
+speed = DEFAULT_SPEED
 fix_duration = None
 
+
+# -----------------------------------------
+# InferenceContext class
 # -----------------------------------------
 
+class InferenceContext:
+    """
+    Encapsulates inference state and configuration.
 
-# chunk text into smaller pieces
+    This class replaces global state with instance-based state management,
+    making it easier to manage multiple inference sessions and test code.
+    """
+
+    def __init__(
+        self,
+        device: Optional[str] = None,
+        target_sample_rate: int = TARGET_SAMPLE_RATE,
+        n_mel_channels: int = N_MEL_CHANNELS,
+        hop_length: int = HOP_LENGTH,
+        win_length: int = WIN_LENGTH,
+        n_fft: int = N_FFT,
+        mel_spec_type: str = "vocos",
+        target_rms: float = DEFAULT_TARGET_RMS,
+        cross_fade_duration: float = DEFAULT_CROSS_FADE_DURATION,
+        ode_method: str = "euler",
+        nfe_step: int = DEFAULT_NFE_STEP,
+        cfg_strength: float = DEFAULT_CFG_STRENGTH,
+        sway_sampling_coef: float = DEFAULT_SWAY_SAMPLING_COEF,
+        speed: float = DEFAULT_SPEED,
+        fix_duration: Optional[float] = None,
+    ):
+        """Initialize inference context with configuration."""
+        self.device = device or get_device()
+        self.target_sample_rate = target_sample_rate
+        self.n_mel_channels = n_mel_channels
+        self.hop_length = hop_length
+        self.win_length = win_length
+        self.n_fft = n_fft
+        self.mel_spec_type = mel_spec_type
+        self.target_rms = target_rms
+        self.cross_fade_duration = cross_fade_duration
+        self.ode_method = ode_method
+        self.nfe_step = nfe_step
+        self.cfg_strength = cfg_strength
+        self.sway_sampling_coef = sway_sampling_coef
+        self.speed = speed
+        self.fix_duration = fix_duration
+
+        # Internal state
+        self._ref_audio_cache: Dict[str, str] = {}
+        self._asr_pipe = None
+        self._vocoder = None
+        self._model = None
+
+    def clear_cache(self) -> None:
+        """Clear the reference audio transcription cache."""
+        self._ref_audio_cache.clear()
+
+    def initialize_asr_pipeline(self, dtype: Optional[torch.dtype] = None) -> None:
+        """Initialize the ASR pipeline for transcription."""
+        if dtype is None:
+            dtype = get_dtype(self.device)
+
+        self._asr_pipe = pipeline(
+            "automatic-speech-recognition",
+            model="openai/whisper-large-v3-turbo",
+            torch_dtype=dtype,
+            device=self.device,
+        )
+
+    def transcribe(self, ref_audio: str, language: Optional[str] = None) -> str:
+        """Transcribe audio using the ASR pipeline."""
+        if self._asr_pipe is None:
+            self.initialize_asr_pipeline()
+
+        return self._asr_pipe(
+            ref_audio,
+            chunk_length_s=30,
+            batch_size=128,
+            generate_kwargs={"task": "transcribe", "language": language} if language else {"task": "transcribe"},
+            return_timestamps=False,
+        )["text"].strip()
+
+    def load_vocoder(
+        self,
+        vocoder_name: str = "vocos",
+        is_local: bool = False,
+        local_path: str = "",
+        hf_cache_dir: Optional[str] = None,
+    ) -> torch.nn.Module:
+        """Load the vocoder model."""
+        self._vocoder = load_vocoder(
+            vocoder_name=vocoder_name,
+            is_local=is_local,
+            local_path=local_path,
+            device=self.device,
+            hf_cache_dir=hf_cache_dir,
+        )
+        return self._vocoder
+
+    def load_model(
+        self,
+        model_cls,
+        model_cfg: dict,
+        ckpt_path: str,
+        vocab_file: str = "",
+        use_ema: bool = True,
+    ) -> CFM:
+        """Load the TTS model."""
+        self._model = load_model(
+            model_cls=model_cls,
+            model_cfg=model_cfg,
+            ckpt_path=ckpt_path,
+            mel_spec_type=self.mel_spec_type,
+            vocab_file=vocab_file,
+            ode_method=self.ode_method,
+            use_ema=use_ema,
+            device=self.device,
+        )
+        return self._model
+
+    def preprocess_ref_audio_text(
+        self,
+        ref_audio_orig: str,
+        ref_text: str,
+        clip_short: bool = True,
+        show_info: Callable = print,
+    ) -> Tuple[str, str]:
+        """Preprocess reference audio and text."""
+        return preprocess_ref_audio_text(
+            ref_audio_orig=ref_audio_orig,
+            ref_text=ref_text,
+            clip_short=clip_short,
+            show_info=show_info,
+            device=self.device,
+            ref_audio_cache=self._ref_audio_cache,
+            transcribe_fn=self.transcribe,
+        )
+
+    @property
+    def vocoder(self) -> Optional[torch.nn.Module]:
+        """Get the loaded vocoder."""
+        return self._vocoder
+
+    @property
+    def model(self) -> Optional[CFM]:
+        """Get the loaded model."""
+        return self._model
 
 
-def chunk_text(text, max_chars=135):
+# -----------------------------------------
+# Default context for backward compatibility
+# -----------------------------------------
+
+_default_context: Optional[InferenceContext] = None
+
+def get_default_context() -> InferenceContext:
+    """Get or create the default inference context."""
+    global _default_context
+    if _default_context is None:
+        _default_context = InferenceContext()
+    return _default_context
+
+
+# Keep backward-compatible global variables
+device = get_device()
+_ref_audio_cache: Dict[str, str] = {}
+asr_pipe = None
+
+
+# -----------------------------------------
+# Text processing utilities
+# -----------------------------------------
+
+def chunk_text(text: str, max_chars: int = 135) -> List[str]:
     """
     Splits the input text into chunks, each with a maximum number of characters.
 
     Args:
-        text (str): The text to be split.
-        max_chars (int): The maximum number of characters per chunk.
+        text: The text to be split.
+        max_chars: The maximum number of characters per chunk.
 
     Returns:
-        List[str]: A list of text chunks.
+        A list of text chunks.
     """
     chunks = []
     current_chunk = ""
@@ -97,10 +272,19 @@ def chunk_text(text, max_chars=135):
     return chunks
 
 
-# load vocoder
-def load_vocoder(vocoder_name="vocos", is_local=False, local_path="", device=device, hf_cache_dir=None):
+# -----------------------------------------
+# Model loading utilities
+# -----------------------------------------
+
+def load_vocoder(
+    vocoder_name: str = "vocos",
+    is_local: bool = False,
+    local_path: str = "",
+    device: str = device,
+    hf_cache_dir: Optional[str] = None,
+) -> torch.nn.Module:
+    """Load vocoder model for audio generation."""
     if vocoder_name == "vocos":
-        # vocoder = Vocos.from_pretrained("charactr/vocos-mel-24khz").to(device)
         if is_local:
             print(f"Load vocos from local path {local_path}")
             config_path = f"{local_path}/config.yaml"
@@ -139,20 +323,11 @@ def load_vocoder(vocoder_name="vocos", is_local=False, local_path="", device=dev
     return vocoder
 
 
-# load asr pipeline
-
-asr_pipe = None
-
-
-def initialize_asr_pipeline(device: str = device, dtype=None):
+def initialize_asr_pipeline(device: str = device, dtype: Optional[torch.dtype] = None) -> None:
+    """Initialize the ASR pipeline for transcription (backward compatible)."""
     if dtype is None:
-        dtype = (
-            torch.float16
-            if "cuda" in device
-            and torch.cuda.get_device_properties(device).major >= 6
-            and not torch.cuda.get_device_name().endswith("[ZLUDA]")
-            else torch.float32
-        )
+        dtype = get_dtype(device)
+
     global asr_pipe
     asr_pipe = pipeline(
         "automatic-speech-recognition",
@@ -162,10 +337,8 @@ def initialize_asr_pipeline(device: str = device, dtype=None):
     )
 
 
-# transcribe
-
-
-def transcribe(ref_audio, language=None):
+def transcribe(ref_audio: str, language: Optional[str] = None) -> str:
+    """Transcribe audio using the ASR pipeline (backward compatible)."""
     global asr_pipe
     if asr_pipe is None:
         initialize_asr_pipeline(device=device)
@@ -178,24 +351,21 @@ def transcribe(ref_audio, language=None):
     )["text"].strip()
 
 
-# load model checkpoint for inference
-
-
-def load_checkpoint(model, ckpt_path, device: str, dtype=None, use_ema=True):
+def load_checkpoint(
+    model: CFM,
+    ckpt_path: str,
+    device: str,
+    dtype: Optional[torch.dtype] = None,
+    use_ema: bool = True,
+) -> CFM:
+    """Load model checkpoint for inference."""
     if dtype is None:
-        dtype = (
-            torch.float16
-            if "cuda" in device
-            and torch.cuda.get_device_properties(device).major >= 6
-            and not torch.cuda.get_device_name().endswith("[ZLUDA]")
-            else torch.float32
-        )
+        dtype = get_dtype(device)
     model = model.to(dtype)
 
     ckpt_type = ckpt_path.split(".")[-1]
     if ckpt_type == "safetensors":
         from safetensors.torch import load_file
-
         checkpoint = load_file(ckpt_path, device=device)
     else:
         checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
@@ -226,19 +396,17 @@ def load_checkpoint(model, ckpt_path, device: str, dtype=None, use_ema=True):
     return model.to(device)
 
 
-# load model for inference
-
-
 def load_model(
     model_cls,
-    model_cfg,
-    ckpt_path,
-    mel_spec_type=mel_spec_type,
-    vocab_file="",
-    ode_method=ode_method,
-    use_ema=True,
-    device=device,
-):
+    model_cfg: dict,
+    ckpt_path: str,
+    mel_spec_type: str = mel_spec_type,
+    vocab_file: str = "",
+    ode_method: str = ode_method,
+    use_ema: bool = True,
+    device: str = device,
+) -> CFM:
+    """Load model for inference."""
     if vocab_file == "":
         vocab_file = str(files("f5_tts").joinpath("infer/examples/vocab.txt"))
     tokenizer = "custom"
@@ -270,7 +438,12 @@ def load_model(
     return model
 
 
-def remove_silence_edges(audio, silence_threshold=-42):
+# -----------------------------------------
+# Audio processing utilities
+# -----------------------------------------
+
+def remove_silence_edges(audio: AudioSegment, silence_threshold: int = -42) -> AudioSegment:
+    """Remove silence from the edges of an audio segment."""
     # Remove silence from the start
     non_silent_start_idx = silence.detect_leading_silence(audio, silence_threshold=silence_threshold)
     audio = audio[non_silent_start_idx:]
@@ -286,10 +459,25 @@ def remove_silence_edges(audio, silence_threshold=-42):
     return trimmed_audio
 
 
-# preprocess reference audio and text
+def preprocess_ref_audio_text(
+    ref_audio_orig: str,
+    ref_text: str,
+    clip_short: bool = True,
+    show_info: Callable = print,
+    device: str = device,
+    ref_audio_cache: Optional[Dict[str, str]] = None,
+    transcribe_fn: Optional[Callable] = None,
+) -> Tuple[str, str]:
+    """Preprocess reference audio and text for inference."""
+    # Use global cache if not provided
+    if ref_audio_cache is None:
+        global _ref_audio_cache
+        ref_audio_cache = _ref_audio_cache
 
+    # Use global transcribe if not provided
+    if transcribe_fn is None:
+        transcribe_fn = transcribe
 
-def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_info=print, device=device):
     show_info("Converting audio...")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
         aseg = AudioSegment.from_file(ref_audio_orig)
@@ -335,16 +523,15 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
         audio_hash = hashlib.md5(audio_data).hexdigest()
 
     if not ref_text.strip():
-        global _ref_audio_cache
-        if audio_hash in _ref_audio_cache:
+        if audio_hash in ref_audio_cache:
             # Use cached asr transcription
             show_info("Using cached reference text...")
-            ref_text = _ref_audio_cache[audio_hash]
+            ref_text = ref_audio_cache[audio_hash]
         else:
             show_info("No reference text provided, transcribing reference audio...")
-            ref_text = transcribe(ref_audio)
+            ref_text = transcribe_fn(ref_audio)
             # Cache the transcribed text (not caching custom ref_text, enabling users to do manual tweak)
-            _ref_audio_cache[audio_hash] = ref_text
+            ref_audio_cache[audio_hash] = ref_text
     else:
         show_info("Using custom reference text...")
 
@@ -360,33 +547,35 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
     return ref_audio, ref_text
 
 
-# infer process: chunk text -> infer batches [i.e. infer_batch_process()]
-
+# -----------------------------------------
+# Inference functions
+# -----------------------------------------
 
 def infer_process(
-    ref_audio,
-    ref_text,
-    gen_text,
-    model_obj,
-    vocoder,
-    mel_spec_type=mel_spec_type,
-    show_info=print,
+    ref_audio: str,
+    ref_text: str,
+    gen_text: str,
+    model_obj: CFM,
+    vocoder: torch.nn.Module,
+    mel_spec_type: str = mel_spec_type,
+    show_info: Callable = print,
     progress=tqdm,
-    target_rms=target_rms,
-    cross_fade_duration=cross_fade_duration,
-    nfe_step=nfe_step,
-    cfg_strength=cfg_strength,
-    sway_sampling_coef=sway_sampling_coef,
-    speed=speed,
-    fix_duration=fix_duration,
-    device=device,
-):
+    target_rms: float = target_rms,
+    cross_fade_duration: float = cross_fade_duration,
+    nfe_step: int = nfe_step,
+    cfg_strength: float = cfg_strength,
+    sway_sampling_coef: float = sway_sampling_coef,
+    speed: float = speed,
+    fix_duration: Optional[float] = fix_duration,
+    device: str = device,
+) -> Tuple[np.ndarray, int, np.ndarray]:
+    """Inference process: chunk text -> infer batches."""
     # Split the input text into batches
     audio, sr = torchaudio.load(ref_audio)
     max_chars = int(len(ref_text.encode("utf-8")) / (audio.shape[-1] / sr) * (22 - audio.shape[-1] / sr))
     gen_text_batches = chunk_text(gen_text, max_chars=max_chars)
-    for i, gen_text in enumerate(gen_text_batches):
-        print(f"gen_text {i}", gen_text)
+    for i, gt in enumerate(gen_text_batches):
+        print(f"gen_text {i}", gt)
     print("\n")
 
     show_info(f"Generating audio in {len(gen_text_batches)} batches...")
@@ -411,28 +600,26 @@ def infer_process(
     )
 
 
-# infer batches
-
-
 def infer_batch_process(
-    ref_audio,
-    ref_text,
-    gen_text_batches,
-    model_obj,
-    vocoder,
-    mel_spec_type="vocos",
+    ref_audio: Tuple[torch.Tensor, int],
+    ref_text: str,
+    gen_text_batches: List[str],
+    model_obj: CFM,
+    vocoder: torch.nn.Module,
+    mel_spec_type: str = "vocos",
     progress=tqdm,
-    target_rms=0.1,
-    cross_fade_duration=0.15,
-    nfe_step=32,
-    cfg_strength=2.0,
-    sway_sampling_coef=-1,
-    speed=1,
-    fix_duration=None,
-    device=None,
-    streaming=False,
-    chunk_size=2048,
-):
+    target_rms: float = 0.1,
+    cross_fade_duration: float = 0.15,
+    nfe_step: int = 32,
+    cfg_strength: float = 2.0,
+    sway_sampling_coef: float = -1,
+    speed: float = 1,
+    fix_duration: Optional[float] = None,
+    device: Optional[str] = None,
+    streaming: bool = False,
+    chunk_size: int = 2048,
+) -> Generator:
+    """Process inference in batches."""
     audio, sr = ref_audio
     if audio.shape[0] > 1:
         audio = torch.mean(audio, dim=0, keepdim=True)
@@ -563,10 +750,8 @@ def infer_batch_process(
             yield None, target_sample_rate, None
 
 
-# remove silence from generated wav
-
-
-def remove_silence_for_generated_wav(filename):
+def remove_silence_for_generated_wav(filename: str) -> None:
+    """Remove silence from generated wav file."""
     aseg = AudioSegment.from_file(filename)
     non_silent_segs = silence.split_on_silence(
         aseg, min_silence_len=1000, silence_thresh=-50, keep_silence=500, seek_step=10
@@ -578,10 +763,8 @@ def remove_silence_for_generated_wav(filename):
     aseg.export(filename, format="wav")
 
 
-# save spectrogram
-
-
-def save_spectrogram(spectrogram, path):
+def save_spectrogram(spectrogram: np.ndarray, path: str) -> None:
+    """Save spectrogram as an image."""
     plt.figure(figsize=(12, 4))
     plt.imshow(spectrogram, origin="lower", aspect="auto")
     plt.colorbar()

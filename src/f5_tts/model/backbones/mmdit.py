@@ -16,67 +16,10 @@ from x_transformers.x_transformers import RotaryEmbedding
 
 from f5_tts.model.modules import (
     TimestepEmbedding,
-    ConvPositionEmbedding,
     MMDiTBlock,
     AdaLayerNorm_Final,
-    precompute_freqs_cis,
-    get_pos_embed_indices,
 )
-
-
-# text embedding
-
-
-class TextEmbedding(nn.Module):
-    def __init__(self, out_dim, text_num_embeds, mask_padding=True):
-        super().__init__()
-        self.text_embed = nn.Embedding(text_num_embeds + 1, out_dim)  # will use 0 as filler token
-
-        self.mask_padding = mask_padding  # mask filler and batch padding tokens or not
-
-        self.precompute_max_pos = 1024
-        self.register_buffer("freqs_cis", precompute_freqs_cis(out_dim, self.precompute_max_pos), persistent=False)
-
-    def forward(self, text: int["b nt"], drop_text=False) -> int["b nt d"]:  # noqa: F722
-        text = text + 1  # use 0 as filler token. preprocess of batch pad -1, see list_str_to_idx()
-        if self.mask_padding:
-            text_mask = text == 0
-
-        if drop_text:  # cfg for text
-            text = torch.zeros_like(text)
-
-        text = self.text_embed(text)  # b nt -> b nt d
-
-        # sinus pos emb
-        batch_start = torch.zeros((text.shape[0],), dtype=torch.long)
-        batch_text_len = text.shape[1]
-        pos_idx = get_pos_embed_indices(batch_start, batch_text_len, max_pos=self.precompute_max_pos)
-        text_pos_embed = self.freqs_cis[pos_idx]
-
-        text = text + text_pos_embed
-
-        if self.mask_padding:
-            text = text.masked_fill(text_mask.unsqueeze(-1).expand(-1, -1, text.size(-1)), 0.0)
-
-        return text
-
-
-# noised input & masked cond audio embedding
-
-
-class AudioEmbedding(nn.Module):
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.linear = nn.Linear(2 * in_dim, out_dim)
-        self.conv_pos_embed = ConvPositionEmbedding(out_dim)
-
-    def forward(self, x: float["b n d"], cond: float["b n d"], drop_audio_cond=False):  # noqa: F722
-        if drop_audio_cond:
-            cond = torch.zeros_like(cond)
-        x = torch.cat((x, cond), dim=-1)
-        x = self.linear(x)
-        x = self.conv_pos_embed(x) + x
-        return x
+from f5_tts.core.embeddings import MMDiTTextEmbedding as TextEmbedding, AudioEmbedding
 
 
 # Transformer backbone using MM-DiT blocks

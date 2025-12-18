@@ -3,3 +3,6 @@
 /data/your_training_dataset_non_preprocessed/
 /ckpts/your_training_dataset/
 /preprocess
+/venv
+__pycache__
+/data/ViVoice

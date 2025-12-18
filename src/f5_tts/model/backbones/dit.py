@@ -11,90 +11,15 @@ from __future__ import annotations
 
 import torch
 from torch import nn
-import torch.nn.functional as F
 
 from x_transformers.x_transformers import RotaryEmbedding
 
 from f5_tts.model.modules import (
     TimestepEmbedding,
-    ConvNeXtV2Block,
-    ConvPositionEmbedding,
     DiTBlock,
     AdaLayerNorm_Final,
-    precompute_freqs_cis,
-    get_pos_embed_indices,
 )
-
-
-# Text embedding
-
-
-class TextEmbedding(nn.Module):
-    def __init__(self, text_num_embeds, text_dim, mask_padding=True, conv_layers=0, conv_mult=2):
-        super().__init__()
-        self.text_embed = nn.Embedding(text_num_embeds + 1, text_dim)  # use 0 as filler token
-
-        self.mask_padding = mask_padding  # mask filler and batch padding tokens or not
-
-        if conv_layers > 0:
-            self.extra_modeling = True
-            self.precompute_max_pos = 4096  # ~44s of 24khz audio
-            self.register_buffer("freqs_cis", precompute_freqs_cis(text_dim, self.precompute_max_pos), persistent=False)
-            self.text_blocks = nn.Sequential(
-                *[ConvNeXtV2Block(text_dim, text_dim * conv_mult) for _ in range(conv_layers)]
-            )
-        else:
-            self.extra_modeling = False
-
-    def forward(self, text: int["b nt"], seq_len, drop_text=False):  # noqa: F722
-        text = text + 1  # use 0 as filler token. preprocess of batch pad -1, see list_str_to_idx()
-        text = text[:, :seq_len]  # curtail if character tokens are more than the mel spec tokens
-        batch, text_len = text.shape[0], text.shape[1]
-        text = F.pad(text, (0, seq_len - text_len), value=0)
-        if self.mask_padding:
-            text_mask = text == 0
-
-        if drop_text:  # cfg for text
-            text = torch.zeros_like(text)
-
-        text = self.text_embed(text)  # b n -> b n d
-
-        # possible extra modeling
-        if self.extra_modeling:
-            # sinus pos emb
-            batch_start = torch.zeros((batch,), dtype=torch.long)
-            pos_idx = get_pos_embed_indices(batch_start, seq_len, max_pos=self.precompute_max_pos)
-            text_pos_embed = self.freqs_cis[pos_idx]
-            text = text + text_pos_embed
-
-            # convnextv2 blocks
-            if self.mask_padding:
-                text = text.masked_fill(text_mask.unsqueeze(-1).expand(-1, -1, text.size(-1)), 0.0)
-                for block in self.text_blocks:
-                    text = block(text)
-                    text = text.masked_fill(text_mask.unsqueeze(-1).expand(-1, -1, text.size(-1)), 0.0)
-            else:
-                text = self.text_blocks(text)
-
-        return text
-
-
-# noised input audio and context mixing embedding
-
-
-class InputEmbedding(nn.Module):
-    def __init__(self, mel_dim, text_dim, out_dim):
-        super().__init__()
-        self.proj = nn.Linear(mel_dim * 2 + text_dim, out_dim)
-        self.conv_pos_embed = ConvPositionEmbedding(dim=out_dim)
-
-    def forward(self, x: float["b n d"], cond: float["b n d"], text_embed: float["b n d"], drop_audio_cond=False):  # noqa: F722
-        if drop_audio_cond:  # cfg for cond audio
-            cond = torch.zeros_like(cond)
-
-        x = self.proj(torch.cat((x, cond, text_embed), dim=-1))
-        x = self.conv_pos_embed(x) + x
-        return x
+from f5_tts.core.embeddings import TextEmbedding, InputEmbedding
 
 
 # Transformer backbone using DiT blocks
