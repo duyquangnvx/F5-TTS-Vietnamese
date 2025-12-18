@@ -5,6 +5,7 @@ from importlib.resources import files
 
 from cached_path import cached_path
 
+from f5_tts.core.device import print_device_info
 from f5_tts.model import CFM, UNetT, DiT, Trainer
 from f5_tts.model.utils import get_tokenizer
 from f5_tts.model.dataset import load_dataset
@@ -80,6 +81,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    # Print device information
+    print_device_info()
+    print()
 
     checkpoint_path = str(files("f5_tts").joinpath(f"../../ckpts/{args.dataset_name}"))
 

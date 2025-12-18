@@ -12,6 +12,7 @@ import tomli
 from cached_path import cached_path
 from omegaconf import OmegaConf
 
+from f5_tts.core.device import print_device_info
 from f5_tts.infer.utils_infer import (
     mel_spec_type,
     target_rms,
@@ -231,6 +232,10 @@ if save_chunk:
     if not os.path.exists(output_chunk_dir):
         os.makedirs(output_chunk_dir)
 
+
+# print device info
+print_device_info()
+print()
 
 # load vocoder
 

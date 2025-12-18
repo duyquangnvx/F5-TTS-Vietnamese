@@ -78,6 +78,36 @@ output/
 └── logs/           # Training logs
 ```
 
+## Check Device (GPU Detection)
+
+Before running training or inference, you can check which GPU is available:
+
+```powershell
+# Check selected device
+python -m f5_tts.tools.check_device
+
+# Show all available devices
+python -m f5_tts.tools.check_device --all
+
+# Test CUDA is working
+python -m f5_tts.tools.check_device --test
+```
+
+Example output:
+```
+==================================================
+Device Information
+==================================================
+  Device Type: CUDA
+  Device Name: NVIDIA GeForce RTX 5070
+  Memory: 12.00 GB
+  Compute Capability: 12.0
+  CUDA Version: 12.4
+  Multiprocessors: 48
+  Dtype: torch.float16
+==================================================
+```
+
 ## Requirements
 
 - Python 3.9+
