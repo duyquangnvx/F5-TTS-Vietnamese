@@ -2,9 +2,15 @@ import argparse
 import codecs
 import os
 import re
+import sys
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
+
+# Fix UTF-8 encoding on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 import numpy as np
 import soundfile as sf

@@ -20,6 +20,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pylab as plt
 import numpy as np
+import soundfile as sf
 import torch
 import torchaudio
 import tqdm
@@ -571,7 +572,13 @@ def infer_process(
 ) -> Tuple[np.ndarray, int, np.ndarray]:
     """Inference process: chunk text -> infer batches."""
     # Split the input text into batches
-    audio, sr = torchaudio.load(ref_audio)
+    # Use soundfile instead of torchaudio.load for better Windows compatibility
+    audio_np, sr = sf.read(ref_audio)
+    # Convert to torch tensor with shape (channels, samples) to match torchaudio format
+    if audio_np.ndim == 1:
+        audio = torch.from_numpy(audio_np).unsqueeze(0).float()
+    else:
+        audio = torch.from_numpy(audio_np.T).float()
     max_chars = int(len(ref_text.encode("utf-8")) / (audio.shape[-1] / sr) * (22 - audio.shape[-1] / sr))
     gen_text_batches = chunk_text(gen_text, max_chars=max_chars)
     for i, gt in enumerate(gen_text_batches):
