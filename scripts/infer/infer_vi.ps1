@@ -28,7 +28,8 @@ $ErrorActionPreference = "Stop"
 
 # Set PYTHONPATH to include src directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Split-Path -Parent $scriptDir
+$scriptsDir = Split-Path -Parent $scriptDir
+$projectRoot = Split-Path -Parent $scriptsDir
 $env:PYTHONPATH = "$projectRoot\src;$env:PYTHONPATH"
 
 # Change to project root
