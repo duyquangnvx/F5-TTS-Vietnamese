@@ -56,13 +56,13 @@ Use the setup script which auto-detects your GPU:
 
 ```powershell
 # PowerShell (auto-detect GPU and install correct PyTorch)
-.\scripts\setup_pytorch.ps1
+.\scripts\setup\setup_pytorch.ps1
 
 # Preview what will be installed
-.\scripts\setup_pytorch.ps1 -DryRun
+.\scripts\setup\setup_pytorch.ps1 -DryRun
 
 # Force specific CUDA version
-.\scripts\setup_pytorch.ps1 -CudaVersion "12.4"
+.\scripts\setup\setup_pytorch.ps1 -CudaVersion "12.4"
 ```
 
 #### Option B: Manual Installation
@@ -150,10 +150,10 @@ python -m f5_tts.infer.infer_cli \
 
 ```powershell
 # PowerShell (recommended for Vietnamese)
-.\scripts\infer_vi.ps1
+.\scripts\infer\infer_vi.ps1
 
 # Or with custom config
-.\scripts\infer_vi.ps1 -Config "configs/my_config.toml"
+.\scripts\infer\infer_vi.ps1 -Config "configs/my_config.toml"
 ```
 
 ### Gradio Web UI
@@ -235,13 +235,13 @@ python -m f5_tts.tools.extend_embeddings --help
 ### Using Scripts (Windows)
 
 ```powershell
-# Edit scripts/fine_tuning.bat or fine_tuning.ps1 first
+# Edit scripts/train/fine_tuning.ps1 first
 
 # Run full pipeline
-.\scripts\fine_tuning.ps1 -Stage 0 -StopStage 5
+.\scripts\train\fine_tuning.ps1 -Stage 0 -StopStage 5
 
 # Run specific stages
-.\scripts\fine_tuning.ps1 -Stage 5 -StopStage 5  # Training only
+.\scripts\train\fine_tuning.ps1 -Stage 5 -StopStage 5  # Training only
 ```
 
 ### Manual Steps
@@ -306,7 +306,11 @@ F5-TTS-Vietnamese/
 │   ├── eval/               # Evaluation
 │   ├── tools/              # CLI tools
 │   └── configs/            # Model configs
-├── scripts/                # Windows batch/PowerShell scripts
+├── scripts/                # Windows scripts
+│   ├── setup/              # Environment setup (PyTorch)
+│   ├── infer/              # Inference scripts
+│   ├── train/              # Training scripts
+│   └── tools/              # Data preparation
 ├── configs/                # Inference configs
 ├── data/                   # Training data
 ├── ckpts/                  # Checkpoints
@@ -349,7 +353,7 @@ If you see a warning about CPU-only PyTorch when running inference:
 python -m f5_tts.tools.check_pytorch
 
 # Or use the setup script to reinstall
-.\scripts\setup_pytorch.ps1 -Force
+.\scripts\setup\setup_pytorch.ps1 -Force
 ```
 
 This typically happens when you ran `pip install -e .` before installing PyTorch with CUDA. See [Installation](#installation) for correct order.

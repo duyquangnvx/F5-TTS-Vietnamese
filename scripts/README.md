@@ -2,36 +2,46 @@
 
 Windows scripts for F5-TTS setup, training, inference, and evaluation.
 
-## Scripts Overview
+## Directory Structure
 
-| Script | Description |
-|--------|-------------|
-| `setup_pytorch.ps1` | **Setup**: Auto-detect GPU and install PyTorch with CUDA |
-| `setup_pytorch.bat` | Setup (batch version) |
-| `infer_vi.ps1` | Vietnamese inference using config file (recommended) |
-| `infer_vi.bat` | Vietnamese inference (batch version) |
-| `infer.ps1` | General inference with parameters |
-| `infer.bat` | General inference (batch version) |
-| `fine_tuning.ps1` | Fine-tuning pipeline (PowerShell) |
-| `fine_tuning.bat` | Fine-tuning pipeline (batch) |
-| `eval_batch.bat` | Batch evaluation |
+```
+scripts/
+├── setup/          # Environment setup
+│   ├── setup_pytorch.ps1
+│   └── setup_pytorch.bat
+├── infer/          # Inference scripts
+│   ├── infer_vi.ps1
+│   ├── infer_vi.bat
+│   ├── infer.ps1
+│   └── infer.bat
+├── train/          # Training scripts
+│   ├── fine_tuning.ps1
+│   └── fine_tuning.bat
+└── tools/          # Data preparation tools
+    ├── convert_sr.bat
+    ├── prepare_metadata.bat
+    ├── check_vocab.bat
+    └── eval_batch.bat
+```
 
-## Setup PyTorch
+## Setup
 
-Before using F5-TTS, install PyTorch with the correct CUDA version for your GPU:
+### Install PyTorch with CUDA
+
+Before using F5-TTS, install PyTorch with the correct CUDA version:
 
 ```powershell
 # Auto-detect GPU and install PyTorch
-.\scripts\setup_pytorch.ps1
+.\scripts\setup\setup_pytorch.ps1
 
 # Preview what will be installed (dry run)
-.\scripts\setup_pytorch.ps1 -DryRun
+.\scripts\setup\setup_pytorch.ps1 -DryRun
 
 # Force specific CUDA version
-.\scripts\setup_pytorch.ps1 -CudaVersion "12.4"
+.\scripts\setup\setup_pytorch.ps1 -CudaVersion "12.4"
 
 # Force reinstall
-.\scripts\setup_pytorch.ps1 -Force
+.\scripts\setup\setup_pytorch.ps1 -Force
 ```
 
 ### GPU -> CUDA Mapping
@@ -43,16 +53,16 @@ Before using F5-TTS, install PyTorch with the correct CUDA version for your GPU:
 | RTX 30xx (3060, 3070, 3080, 3090) | 12.1 |
 | RTX 20xx / GTX 16xx | 11.8 |
 
-## Quick Start
+## Inference
 
-### Inference (Vietnamese)
+### Vietnamese (Recommended)
 
 ```powershell
-# Using config file (recommended - avoids UTF-8 issues)
-.\scripts\infer_vi.ps1
+# Using config file (avoids UTF-8 issues)
+.\scripts\infer\infer_vi.ps1
 
 # Custom config
-.\scripts\infer_vi.ps1 -Config "configs/my_config.toml"
+.\scripts\infer\infer_vi.ps1 -Config "configs/my_config.toml"
 ```
 
 Edit `configs/infer_vi.toml` to change text:
@@ -62,14 +72,14 @@ ref_text = "text tham chiếu"
 gen_text = "text cần sinh giọng nói"
 ```
 
-### Inference (General)
+### General Inference
 
 ```powershell
 # With parameters
-.\scripts\infer.ps1 -GenText "Hello world" -Speed 0.9
+.\scripts\infer\infer.ps1 -GenText "Hello world" -Speed 0.9
 
 # Full options
-.\scripts\infer.ps1 `
+.\scripts\infer\infer.ps1 `
     -RefAudio "ref/vi_ref_1.wav" `
     -RefText "reference text" `
     -GenText "text to generate" `
@@ -77,20 +87,22 @@ gen_text = "text cần sinh giọng nói"
     -Speed 1.0
 ```
 
-### Fine-tuning
+## Training
+
+### Fine-tuning Pipeline
 
 ```powershell
 # Run full pipeline (stages 0-5)
-.\scripts\fine_tuning.ps1 -Stage 0 -StopStage 5
+.\scripts\train\fine_tuning.ps1 -Stage 0 -StopStage 5
 
 # Run only training (stage 5)
-.\scripts\fine_tuning.ps1 -Stage 5 -StopStage 5
+.\scripts\train\fine_tuning.ps1 -Stage 5 -StopStage 5
 
 # Custom dataset
-.\scripts\fine_tuning.ps1 -DatasetName "my_dataset" -ExpName "F5TTS_Base"
+.\scripts\train\fine_tuning.ps1 -DatasetName "my_dataset" -ExpName "F5TTS_Base"
 ```
 
-## Pipeline Stages
+### Pipeline Stages
 
 | Stage | Description |
 |-------|-------------|
@@ -101,46 +113,35 @@ gen_text = "text cần sinh giọng nói"
 | 4 | Extract features (prepare_csv_wavs) |
 | 5 | Run fine-tuning |
 
-## Check GPU
+## Tools
+
+### Data Preparation
+
+```powershell
+# Convert audio sample rate
+.\scripts\tools\convert_sr.bat
+
+# Prepare metadata
+.\scripts\tools\prepare_metadata.bat
+
+# Check vocabulary
+.\scripts\tools\check_vocab.bat
+
+# Batch evaluation
+.\scripts\tools\eval_batch.bat
+```
+
+## Verification
 
 Before running, verify GPU is detected:
 
 ```powershell
+# Check PyTorch CUDA status
+python -m f5_tts.tools.check_pytorch
+
+# Check device info
 python -m f5_tts.tools.check_device --test
 ```
-
-Expected output:
-```
-==================================================
-Device Information
-==================================================
-  Device Type: CUDA
-  Device Name: NVIDIA GeForce RTX ...
-  Memory: XX.XX GB
-  Dtype: torch.float16
-==================================================
-
-[OK] CUDA is working correctly!
-```
-
-## Output Directory
-
-All outputs are saved to the `output/` directory:
-
-```
-output/
-├── inference/      # Inference outputs (.wav files)
-├── eval/           # Evaluation results
-└── logs/           # Training logs
-```
-
-## Configuration Files
-
-| File | Description |
-|------|-------------|
-| `configs/infer_vi.toml` | Vietnamese inference config |
-
-Create custom configs by copying and editing `infer_vi.toml`.
 
 ## Notes
 
@@ -157,7 +158,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```powershell
 # Use specific GPU
 $env:CUDA_VISIBLE_DEVICES = "0"
-.\scripts\infer_vi.ps1
+.\scripts\infer\infer_vi.ps1
 
 # Use second GPU
 $env:CUDA_VISIBLE_DEVICES = "1"
@@ -165,8 +166,8 @@ $env:CUDA_VISIBLE_DEVICES = "1"
 
 ### UTF-8 Encoding
 
-For Vietnamese text, always use config files (`infer_vi.ps1`) instead of passing text as command-line arguments to avoid encoding issues.
+For Vietnamese text, always use config files (`infer_vi.ps1`) instead of passing text as command-line arguments.
 
 ### Multi-GPU Training
 
-Edit `fine_tuning.ps1` and uncomment the `accelerate launch` section.
+Edit `scripts/train/fine_tuning.ps1` and uncomment the `accelerate launch` section.
