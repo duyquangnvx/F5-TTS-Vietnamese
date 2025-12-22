@@ -1,11 +1,13 @@
 # F5-TTS Scripts
 
-Windows scripts for F5-TTS training, inference, and evaluation.
+Windows scripts for F5-TTS setup, training, inference, and evaluation.
 
 ## Scripts Overview
 
 | Script | Description |
 |--------|-------------|
+| `setup_pytorch.ps1` | **Setup**: Auto-detect GPU and install PyTorch with CUDA |
+| `setup_pytorch.bat` | Setup (batch version) |
 | `infer_vi.ps1` | Vietnamese inference using config file (recommended) |
 | `infer_vi.bat` | Vietnamese inference (batch version) |
 | `infer.ps1` | General inference with parameters |
@@ -13,6 +15,33 @@ Windows scripts for F5-TTS training, inference, and evaluation.
 | `fine_tuning.ps1` | Fine-tuning pipeline (PowerShell) |
 | `fine_tuning.bat` | Fine-tuning pipeline (batch) |
 | `eval_batch.bat` | Batch evaluation |
+
+## Setup PyTorch
+
+Before using F5-TTS, install PyTorch with the correct CUDA version for your GPU:
+
+```powershell
+# Auto-detect GPU and install PyTorch
+.\scripts\setup_pytorch.ps1
+
+# Preview what will be installed (dry run)
+.\scripts\setup_pytorch.ps1 -DryRun
+
+# Force specific CUDA version
+.\scripts\setup_pytorch.ps1 -CudaVersion "12.4"
+
+# Force reinstall
+.\scripts\setup_pytorch.ps1 -Force
+```
+
+### GPU -> CUDA Mapping
+
+| GPU Series | CUDA Version |
+|------------|--------------|
+| RTX 50xx (5070, 5080, 5090) | 12.8 (nightly) |
+| RTX 40xx (4060, 4070, 4080, 4090) | 12.4 |
+| RTX 30xx (3060, 3070, 3080, 3090) | 12.1 |
+| RTX 20xx / GTX 16xx | 11.8 |
 
 ## Quick Start
 

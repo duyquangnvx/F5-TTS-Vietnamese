@@ -10,7 +10,10 @@
       "Bash(git -C /d/Workspace/Personal/Code/F5-TTS-Vietnamese log --oneline -10)",
       "mcp__plugin_serena_serena__initial_instructions",
       "mcp__plugin_serena_serena__activate_project",
-      "mcp__plugin_serena_serena__list_memories"
+      "mcp__plugin_serena_serena__list_memories",
+      "Bash(python -m f5_tts.tools.check_device:*)",
+      "Bash(python:*)",
+      "Bash(nvidia-smi:*)"
     ]
   }
 }

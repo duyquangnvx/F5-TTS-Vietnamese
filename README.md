@@ -37,38 +37,47 @@ A fine-tuning pipeline for training Vietnamese speech synthesis models using the
 ### 1. Create Environment
 
 ```bash
-# Using conda
+# Using conda (recommended)
 conda create -n f5-tts python=3.10
 conda activate f5-tts
 
 # Or using venv
 python -m venv venv
-# Windows
-.\venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
+.\venv\Scripts\activate  # Windows
 ```
 
-### 2. Install PyTorch
+### 2. Install PyTorch with CUDA
 
-```bash
-# CUDA 12.8 (RTX 50 series, nightly build)
-pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+> **IMPORTANT**: Install PyTorch **BEFORE** installing F5-TTS to ensure GPU support. Running `pip install -e .` without PyTorch will install CPU-only version from PyPI.
 
-# CUDA 12.4
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+#### Option A: Automatic (Recommended)
 
-# CUDA 12.1
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+Use the setup script which auto-detects your GPU:
 
-# CUDA 11.8
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```powershell
+# PowerShell (auto-detect GPU and install correct PyTorch)
+.\scripts\setup_pytorch.ps1
 
-# CPU only
-pip install torch torchvision torchaudio
+# Preview what will be installed
+.\scripts\setup_pytorch.ps1 -DryRun
+
+# Force specific CUDA version
+.\scripts\setup_pytorch.ps1 -CudaVersion "12.4"
 ```
 
-> **Note**: RTX 50 series (5070, 5080, 5090) requires CUDA 12.8+ (nightly build)
+#### Option B: Manual Installation
+
+Choose the command matching your GPU:
+
+| GPU Series | Architecture | CUDA | Command |
+|------------|--------------|------|---------|
+| RTX 50xx (5070, 5080, 5090) | Blackwell | 12.8 | `pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128` |
+| RTX 40xx (4060, 4070, 4080, 4090) | Ada Lovelace | 12.4 | `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124` |
+| RTX 30xx (3060, 3070, 3080, 3090) | Ampere | 12.1 | `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121` |
+| RTX 20xx / GTX 16xx | Turing | 11.8 | `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118` |
+| No GPU (CPU only) | - | - | `pip install torch torchvision torchaudio` |
+
+> **Note**: RTX 50 series requires PyTorch nightly build which may be less stable.
 
 ### 3. Install F5-TTS
 
@@ -77,19 +86,12 @@ cd F5-TTS-Vietnamese
 pip install -e .
 ```
 
-### 4. (Optional) Pre-download Models
+### 4. Verify Installation
 
 ```bash
-# Download vocoder (recommended)
-python -m f5_tts.tools.download_models
+# Check PyTorch CUDA status
+python -m f5_tts.tools.check_pytorch
 
-# Download all models for offline use
-python -m f5_tts.tools.download_models --all
-```
-
-### 5. Verify Installation
-
-```bash
 # Check GPU detection
 python -m f5_tts.tools.check_device --test
 ```
@@ -97,15 +99,27 @@ python -m f5_tts.tools.check_device --test
 Expected output:
 ```
 ==================================================
-Device Information
+  PyTorch Installation Check
 ==================================================
-  Device Type: CUDA
-  Device Name: NVIDIA GeForce RTX ...
-  Memory: XX.XX GB
-  Compute Capability: X.X
-  CUDA Version: XX.X
-  Dtype: torch.float16
+  PyTorch Installed: Yes (v2.5.0+cu124)
+  CUDA Available: Yes
+  PyTorch CUDA Version: 12.4
+  GPU Detected: Yes (NVIDIA GeForce RTX 4070)
+  GPU Series: RTX 40
+  Driver CUDA Version: 12.4
 ==================================================
+
+[OK] PyTorch is correctly configured for GPU!
+```
+
+### 5. (Optional) Pre-download Models
+
+```bash
+# Download vocoder (recommended)
+python -m f5_tts.tools.download_models
+
+# Download all models for offline use
+python -m f5_tts.tools.download_models --all
 ```
 
 ## Quick Start
@@ -325,6 +339,20 @@ F5-TTS-Vietnamese/
 The default chunking may not work well for Vietnamese. A custom `chunk_text` function is available in `utils_infer.py` that handles Vietnamese sentence structure better.
 
 ## Troubleshooting
+
+### PyTorch CPU on GPU Machine
+
+If you see a warning about CPU-only PyTorch when running inference:
+
+```bash
+# Check current status and get fix command
+python -m f5_tts.tools.check_pytorch
+
+# Or use the setup script to reinstall
+.\scripts\setup_pytorch.ps1 -Force
+```
+
+This typically happens when you ran `pip install -e .` before installing PyTorch with CUDA. See [Installation](#installation) for correct order.
 
 ### FFmpeg/TorchCodec Error on Windows
 
