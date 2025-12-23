@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import os
 import random
+import warnings
 from collections import defaultdict
 from importlib.resources import files
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
+
+# Suppress jieba pkg_resources warning
+warnings.filterwarnings("ignore", category=UserWarning, module="jieba")
+warnings.filterwarnings("ignore", message=".*pkg_resources.*", category=UserWarning)
 
 import jieba
 from pypinyin import lazy_pinyin, Style

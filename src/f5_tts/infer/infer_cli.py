@@ -3,9 +3,41 @@ import codecs
 import os
 import re
 import sys
+import warnings
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
+
+# Suppress warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="jieba")
+warnings.filterwarnings("ignore", message=".*pkg_resources.*", category=UserWarning)
+
+# Suppress multiprocess cleanup exceptions on Windows
+if sys.platform == "win32":
+    import atexit
+    
+    # Store original stderr
+    _original_stderr = sys.stderr
+    
+    class _SuppressMultiprocessErrors:
+        """Suppress multiprocess ResourceTracker cleanup exceptions on Windows"""
+        def __init__(self, original):
+            self.original = original
+        
+        def write(self, msg):
+            # Filter out multiprocess cleanup exceptions
+            if "ResourceTracker" in msg or "_recursion_count" in msg:
+                return
+            self.original.write(msg)
+        
+        def flush(self):
+            self.original.flush()
+        
+        def __getattr__(self, name):
+            return getattr(self.original, name)
+    
+    # Replace stderr to filter multiprocess exceptions
+    sys.stderr = _SuppressMultiprocessErrors(_original_stderr)
 
 # Fix UTF-8 encoding on Windows
 if sys.platform == "win32":
